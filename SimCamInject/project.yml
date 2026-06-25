@@ -1,0 +1,28 @@
+# SimCamInject/project.yml
+name: SimCamInject
+options:
+  bundleIdPrefix: com.simcam
+  deploymentTarget:
+    iOS: "15.0"
+targets:
+  SimCamInject:
+    type: library.dynamic
+    platform: iOS
+    sources:
+      - path: Sources
+        excludes: ["SimCamMetadataObject.m"]
+      - path: Sources/SimCamMetadataObject.m
+        compilerFlags: "-fno-objc-arc"
+    settings:
+      base:
+        PRODUCT_NAME: SimCamInject
+        MACH_O_TYPE: mh_dylib
+        DEFINES_MODULE: NO
+        CLANG_ENABLE_MODULES: YES
+    dependencies:
+      - sdk: AVFoundation.framework
+      - sdk: UIKit.framework
+      - sdk: QuartzCore.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework
+      - sdk: ImageIO.framework

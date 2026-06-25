@@ -1,0 +1,21 @@
+name: SimCamSample
+options:
+  bundleIdPrefix: com.simcam
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  SimCam:
+    path: ../SimCam
+targets:
+  SimCamSample:
+    type: application
+    platform: iOS
+    sources: [Sources]
+    dependencies:
+      - package: SimCam
+        product: SimCam
+    settings:
+      base:
+        INFOPLIST_FILE: Sources/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.simcam.sample
+        GENERATE_INFOPLIST_FILE: NO
