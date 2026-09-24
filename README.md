@@ -64,7 +64,7 @@ Requirements: a Mac with Apple Silicon, Xcode with the iOS Simulator, and [Xcode
 
 The host app has a fixed bundle id, so the Screen Recording permission survives rebuilds. If macOS keeps asking again with ad-hoc signing, set `SIMCAM_SIGN_IDENTITY="Apple Development: Your Name"` before running the script.
 
-For headless use (`swift run SimCamProbe`), manual dylib builds and log-based verification, see [`SimCamInject/README.md`](SimCamInject/README.md) (in Spanish).
+For headless use (`swift run SimCamProbe`), manual dylib builds and log-based verification, see [`SimCamInject/README.md`](SimCamInject/README.md).
 
 ## Tests
 
@@ -84,4 +84,4 @@ SimCam is an experimental MVP, meant for debug builds in the Simulator only.
 
 ## Author
 
-Built by [Mario Belenguer](https://mariobelenguer.web.app) · [GitHub](https://github.com/MarioB03)
+Built by [Mario Belenguer](https://mariobelenguer.web.app) · [GitHub](https://github.com/MarioB03) · Released under the [MIT License](LICENSE).

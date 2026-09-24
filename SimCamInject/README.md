@@ -1,121 +1,108 @@
 # SimCamInject
 
-Dylib de inyección para el Simulador de iOS que permite que el escáner de códigos de
-barras/QR de **una app iOS funcione en el Simulador sin cámara real y sin tocar la app**.
-La inyección intercepta AVFoundation mediante swizzling ObjC, pinta frames reales en la
-capa de preview y entrega los códigos decodificados al delegate — todo desde fuera.
+An injection dylib for the iOS Simulator. It makes an iOS app's barcode/QR scanner **work in the Simulator with no real camera and no changes to the app**.
+The dylib intercepts AVFoundation through Objective-C swizzling, draws real frames into the preview layer and delivers the decoded codes to the app's delegate, all from outside the app.
 
 ---
 
-## Qué hace
+## What it does
 
-| Componente | Función |
+| Component | Role |
 |---|---|
-| **SimCamHost / SimCamProbe** | Proceso macOS que captura la región del escritorio tapada por la ventana del Simulador, decodifica QR/códigos con Vision y sirve el resultado sobre HTTP `127.0.0.1:8474` |
-| **`/stream`** | MJPEG de los frames capturados (preview en la app) |
-| **`/codes`** | SSE — JSON `{"type","stringValue"}` por cada código detectado |
-| **SimCamInject.dylib** | Se inyecta en la app objetivo vía `DYLD_INSERT_LIBRARIES`; swizzlea `AVCaptureSession` y `AVCaptureMetadataOutput` para que el escáner funcione en el Simulador sin cámara real |
+| **SimCamHost / SimCamProbe** | macOS process. It captures the desktop region behind the Simulator window, decodes QR codes and barcodes with Vision, and serves the results over HTTP on `127.0.0.1:8474`. |
+| **`/stream`** | MJPEG stream of the captured frames, used for the in-app preview. |
+| **`/codes`** | Server-Sent Events stream. It sends one `{"type","stringValue"}` JSON object for each detected code. |
+| **SimCamInject.dylib** | Injected into the target app through `DYLD_INSERT_LIBRARIES`. It swizzles `AVCaptureSession` and `AVCaptureMetadataOutput` so the scanner works in the Simulator with no real camera. |
 
-La dylib es **solo para el Simulador** (`iphonesimulator` slice). En dispositivo real la
-app usa la cámara física; la dylib no se inyecta.
-
----
-
-## Requisitos
-
-- Simulador arrancado (`xcrun simctl bootstatus <UDID> -b`).
-- **Permiso de Grabación de pantalla** concedido al terminal (o a `swift`) en Ajustes del sistema → Privacidad.
-- `xcodegen` instalado (`brew install xcodegen`).
+The dylib is **Simulator only** (`iphonesimulator` slice). On a real device, the app uses the physical camera and the dylib isn't injected.
 
 ---
 
-## Tipos de código compatibles
+## Requirements
 
-Los tipos habituales de `AVCaptureMetadataOutput`:
+- A booted Simulator (`xcrun simctl bootstatus <UDID> -b`).
+- **Screen Recording permission** for the terminal (or `swift`), granted in System Settings → Privacy & Security.
+- `xcodegen` installed (`brew install xcodegen`).
+
+---
+
+## Supported code types
+
+The common `AVCaptureMetadataOutput` types:
 
 `.qr`, `.code128`, `.ean8`, `.ean13`, `.upce`, `.code39`
 
-El host decodifica estos tipos con Vision en el Mac. (Vision de códigos **no funciona
-dentro del Simulador** en iOS 26.x — por eso la decodificación es del lado del Mac.)
+The host decodes these types with Vision on the Mac. Vision barcode detection **doesn't work inside the Simulator** on iOS 26.x, which is why decoding happens on the Mac.
 
 ---
 
-## Uso con la app GUI (recomendado)
+## Using the GUI app (recommended)
 
-La forma más cómoda de usar SimCam es a través de la app **SimCam Host**, una app macOS
-firmada con bundle id fijo (`com.simcam.host`). Al tener un bundle id estable, el permiso
-de **Grabación de pantalla** se concede una sola vez y persiste entre recompilaciones y
-reinicios, sin tener que volver a pedir permiso cada vez.
+The easiest way to use SimCam is the **SimCam Host** app. It's a signed macOS app with a fixed bundle id (`com.simcam.host`). Because the bundle id is stable, you grant the **Screen Recording** permission once and it survives rebuilds and restarts.
 
-### 1. Compilar y empaquetar la app
+### 1. Build and bundle the app
 
 ```bash
-# desde la raíz del repo
+# from the repo root
 ./scripts/build-simcam-host-app.sh
 ```
 
-Esto compila `SimCamHost` en release, ensambla el bundle en `~/Applications/SimCam Host.app`
-y lo firma. Solo es necesario repetirlo si cambias el código fuente del host.
+This builds `SimCamHost` in release mode, assembles the bundle at `~/Applications/SimCam Host.app` and signs it. You only need to run it again if you change the host's source code.
 
-> Para usar una identidad de firma estable (necesario si el permiso TCC se pierde con la
-> firma ad-hoc), exporta tu identidad antes de ejecutar:
+> Ad-hoc signing can lose the TCC permission. To use a stable signing identity instead, export it before running the script:
 > ```bash
-> export SIMCAM_SIGN_IDENTITY="Apple Development: Tu Nombre"
+> export SIMCAM_SIGN_IDENTITY="Apple Development: Your Name"
 > ./scripts/build-simcam-host-app.sh
 > ```
 
-### 2. Conceder Grabación de pantalla (solo la primera vez)
+### 2. Grant Screen Recording (first run only)
 
-1. Abre `~/Applications/SimCam Host.app`.
-2. Ve a **Ajustes del Sistema → Privacidad y Seguridad → Grabación de pantalla**.
-3. Activa **SimCam Host** en la lista.
-4. Cierra y reabre la app.
+1. Open `~/Applications/SimCam Host.app`.
+2. Go to **System Settings → Privacy & Security → Screen Recording**.
+3. Turn on **SimCam Host** in the list.
+4. Quit and reopen the app.
 
-A partir de aquí el permiso queda asociado al bundle id `com.simcam.host` y **no se pierde
-al recompilar**.
+From then on, the permission is tied to the `com.simcam.host` bundle id and **isn't lost when you rebuild**.
 
-### 3. Flujo de uso desde la GUI
+### 3. GUI workflow
 
-1. Pulsa **Capturar** — el estado cambia a verde y el fps sube de 0.
-2. Elige la fuente de la app iOS que quieres probar:
-   - **App instalada en el Simulador**: selecciónala de la lista.
-   - **Proyecto Xcode**: indica la ruta al `.xcodeproj`/`.xcworkspace` y elige el scheme; la app lo compila e instala automáticamente.
-3. Pulsa **Lanzar con SimCam** — SimCam inyecta la dylib y abre la app con la cámara simulada activa.
-4. Abre el escáner dentro de la app iOS — verás el preview en vivo y los códigos detectados.
+The app's UI is in Spanish. Button labels are quoted as they appear.
+
+1. Press **Capturar** (Capture). The status turns green and the fps counter rises above 0.
+2. Choose the iOS app you want to test:
+   - **An app installed in the Simulator**: select it from the list.
+   - **An Xcode project**: enter the path to the `.xcodeproj`/`.xcworkspace` and pick the scheme. The host builds and installs it automatically.
+3. Press **Lanzar con SimCam** (Launch with SimCam). SimCam injects the dylib and opens the app with the simulated camera active.
+4. Open the scanner in the iOS app. You'll see the live preview and the detected codes.
 
 ---
 
-## Uso headless (SimCamProbe — debugging/CI)
+## Headless use (SimCamProbe, for debugging and CI)
 
-`SimCamProbe` es la variante de línea de comandos, útil para debugging o integración en CI
-donde no hay GUI. El permiso de Grabación de pantalla debe concederse al terminal o proceso
-que lo ejecute (lo cual puede ser frágil en CI sin configuración adicional).
+`SimCamProbe` is the command-line variant, for debugging or CI where there's no GUI. The Screen Recording permission must be granted to the terminal or process that runs it. This can be fragile on CI without extra setup.
 
-### 1. Arrancar el host
+### 1. Start the host
 
 ```bash
 cd SimCamHost
 swift run SimCamProbe
 ```
 
-El host imprime:
+The host prints:
 
 ```
 PROBE: sirviendo en http://127.0.0.1:8474/stream
 ```
 
-Si el sistema pide permiso de Grabación de pantalla, concédelo y vuelve a ejecutar el comando.
+(The log message is in Spanish. It means "serving at".) If the system asks for Screen Recording permission, grant it and run the command again.
 
-### 2. Posicionar el código bajo la ventana del Simulador
+### 2. Put the code under the Simulator window
 
-Abre la imagen del QR o etiqueta en el Mac (Finder, Preview, navegador…) y arrastra la
-ventana del **Simulador encima** del código. El host captura exactamente esa región del
-escritorio, como si el Simulador fuera transparente.
+Open the image of the QR code or label on the Mac (Finder, Preview, a browser…) and drag the **Simulator window over** the code. The host captures exactly that region of the desktop, as if the Simulator were transparent.
 
-### 3. Lanzar la app con la dylib inyectada
+### 3. Launch the app with the dylib injected
 
-Compila la dylib (ver más abajo) y lanza la app ya instalada en el Simulador con la dylib
-inyectada:
+Build the dylib (see below). Then launch the app, already installed in the Simulator, with the dylib injected:
 
 ```bash
 DYLIB="$PWD/SimCamInject/.build-xcode/Build/Products/Debug-iphonesimulator/SimCamInject.dylib"
@@ -123,15 +110,13 @@ SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="$DYLIB" \
   xcrun simctl launch <UDID> <bundle-id>
 ```
 
-> **IMPORTANTE:** la ruta de la dylib debe ser **absoluta**. Una ruta relativa es ignorada
-> silenciosamente por dyld y la inyección no ocurre.
+> **IMPORTANT:** the dylib path must be **absolute**. dyld silently ignores a relative path, and the injection doesn't happen.
 
-Abre el escáner en la app → verás el preview en vivo de lo que hay detrás del Simulador, y
-el escaneo se produce de forma automática cuando el código queda centrado.
+Open the scanner in the app. You'll see a live preview of whatever is behind the Simulator, and the scan fires automatically once the code is centred.
 
 ---
 
-## Verificar que la inyección funciona
+## Verifying the injection
 
 ```bash
 xcrun simctl spawn <UDID> log show \
@@ -140,46 +125,46 @@ xcrun simctl spawn <UDID> log show \
   --style compact
 ```
 
-Una inyección correcta muestra, al lanzar y al abrir el escáner, líneas como:
+A successful injection logs lines like these at launch and when the scanner opens. The log messages are in Spanish; the translation of each one follows the `←`.
 
 ```
-[SimCamInject] dylib cargada (pid=40996)
-[SimCamInject] shims AVFoundation instalados
-[SimCamInject] preview layer enganchada
+[SimCamInject] dylib cargada (pid=40996)                       ← dylib loaded
+[SimCamInject] shims AVFoundation instalados                   ← AVFoundation shims installed
+[SimCamInject] preview layer enganchada                        ← preview layer hooked
 [SimCamInject] AVCaptureDevice.default(for:) -> fake
-[SimCamInject] metadataOutput capturado
-[SimCamInject] delegate capturado: <TuApp.BarcodeScannerViewController: 0x...>
+[SimCamInject] metadataOutput capturado                        ← metadataOutput captured
+[SimCamInject] delegate capturado: <YourApp.BarcodeScannerViewController: 0x...>
 [SimCamInject] entregado código (captureOutput:) type=org.gs1.EAN-13 value=1234567890128
+                                                               ← code delivered
 ```
 
-El selector que se entrega al delegate es `captureOutput:didOutputMetadataObjects:fromConnection:`
-(Swift: `metadataOutput(_:didOutput:from:)`).
+The selector delivered to the delegate is `captureOutput:didOutputMetadataObjects:fromConnection:` (Swift: `metadataOutput(_:didOutput:from:)`).
 
 ---
 
-## Arquitectura interna de la dylib
+## Dylib internals
 
-| Archivo | Responsabilidad |
+| File | Responsibility |
 |---|---|
-| `SimCamInject.m` | `+load` — punto de entrada, arranca el swizzling |
-| `AVFoundationShims.m` | Swizzle de `AVCaptureSession` y `AVCaptureDevice` |
-| `PreviewLayerShim.m` | Inyecta frames MJPEG en `AVCaptureVideoPreviewLayer` |
-| `PreviewClient.m/.h` | Cliente MJPEG — consume `/stream` |
-| `CodeStreamClient.m/.h` | Cliente SSE — consume `/codes` |
-| `SimCamDelivery.m/.h` | Fabrica `AVMetadataObject` sintéticos y los entrega al delegate |
-| `SimCamMetadataObject.m/.h` | Subclase de `AVMetadataMachineReadableCodeObject` (compilada sin ARC) |
-| `SimCamBridge.m/.h` | Coordinación entre preview y entrega de códigos |
+| `SimCamInject.m` | `+load` entry point. Starts the swizzling. |
+| `AVFoundationShims.m` | Swizzles `AVCaptureSession` and `AVCaptureDevice`. |
+| `CameraFeedShims.m` | Frame-feed mode. It delivers the host's real frames through `AVCaptureVideoDataOutput`, so the app runs its own Vision/ML logic on them. |
+| `PreviewLayerShim.m` | Pushes MJPEG frames into `AVCaptureVideoPreviewLayer`. |
+| `PreviewClient.m/.h` | MJPEG client that consumes `/stream`. |
+| `CodeStreamClient.m/.h` | SSE client that consumes `/codes`. |
+| `SimCamDelivery.m/.h` | Builds synthetic `AVMetadataObject`s and delivers them to the delegate. |
+| `SimCamMetadataObject.m/.h` | Subclass of `AVMetadataMachineReadableCodeObject`, compiled without ARC. |
+| `SimCamBridge.m/.h` | Coordinates the preview and code delivery. |
 
-La dylib se construye con XcodeGen (`project.yml`, `library.dynamic`, slice
-`iphonesimulator`). El producto lleva el nombre `SimCamInject.dylib` sin prefijo `lib`.
+The dylib is built with XcodeGen (`project.yml`, `library.dynamic`, `iphonesimulator` slice). The product is named `SimCamInject.dylib`, with no `lib` prefix.
 
 ---
 
-## Construcción manual de la dylib
+## Building the dylib manually
 
 ```bash
 cd SimCamInject
-xcodegen          # regenera SimCamInject.xcodeproj
+xcodegen          # regenerates SimCamInject.xcodeproj
 xcodebuild \
   -project SimCamInject.xcodeproj \
   -scheme SimCamInject \
@@ -188,14 +173,14 @@ xcodebuild \
   -destination 'generic/platform=iOS Simulator' \
   -derivedDataPath .build-xcode \
   build
-# dylib en: .build-xcode/Build/Products/Debug-iphonesimulator/SimCamInject.dylib
+# dylib at: .build-xcode/Build/Products/Debug-iphonesimulator/SimCamInject.dylib
 ```
 
 ---
 
-## Limitaciones conocidas (MVP)
+## Known limitations (MVP)
 
-- **Swizzling a nivel de proceso.** `method_setImplementation` reemplaza la implementación para *todas* las instancias del proceso. La dylib asume **una única sesión de captura activa** (el escáner de la app). Si la app inyectada usara AVFoundation para otra cosa (otra `AVCaptureSession`, `AVCaptureVideoPreviewLayer` o `AVCaptureDevice.default(for:)`), también recibiría los shims fake.
-- **Los clientes de red arrancan en `+load`.** `CodeStreamClient` y `PreviewClient` se conectan a `127.0.0.1:8474` en cuanto se carga la dylib y reintentan cada 1 s durante toda la vida del proceso, aunque no se abra el escáner.
-- **No se dibuja el recuadro de detección.** El objeto de metadata fabricado devuelve `corners` vacío, así que la app no anima el recuadro sobre el código; la **entrega del código no se ve afectada**.
-- **Solo Simulador, solo debug.** La dylib se compila para el slice `iphonesimulator` y se inyecta manualmente; en dispositivo la app usa la cámara real, intacta.
+- **Process-wide swizzling.** `method_setImplementation` replaces the implementation for *every* instance in the process. The dylib assumes **a single active capture session** (the app's scanner). If the injected app used AVFoundation for anything else, it would get the fake shims too. That includes another `AVCaptureSession`, `AVCaptureVideoPreviewLayer` or `AVCaptureDevice.default(for:)`.
+- **Network clients start in `+load`.** `CodeStreamClient` and `PreviewClient` connect to `127.0.0.1:8474` as soon as the dylib loads. They retry every second for the whole life of the process, even if the scanner is never opened.
+- **No detection box is drawn.** The synthetic metadata object returns empty `corners`, so the app won't animate a box over the code. **Code delivery is not affected.**
+- **Simulator only, debug only.** The dylib is built for the `iphonesimulator` slice and injected manually. On a device, the app uses its real camera, untouched.
